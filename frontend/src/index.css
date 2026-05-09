@@ -1,0 +1,14 @@
+@charset "UTF-8";
+@import "@gravity-ui/uikit/styles/fonts.css";
+@import "@gravity-ui/uikit/styles/styles.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Geist", sans-serif;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: #F4F6F8;
+}

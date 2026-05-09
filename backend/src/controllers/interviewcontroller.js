@@ -1,10 +1,6 @@
 import InterviewReport from "../models/interviewreport.model.js";
 import { generateInterviewReport } from "../services/ai.service.js";
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
+import { PDFParse } from "pdf-parse";
 
 export const generateReportController = async (req, res) => {
   try {
@@ -12,7 +8,8 @@ export const generateReportController = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const data = await pdfParse(req.file.buffer);
+    const parser = new PDFParse({ data: req.file.buffer });
+    const data = await parser.getText();
     const resumeText = data.text;
 
     const { selfDescription, jobDescription } = req.body;
@@ -38,5 +35,43 @@ export const generateReportController = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error generating report" });
+  }
+};
+
+export const getLatestReportController = async (req, res) => {
+  try {
+    const latestReport = await InterviewReport.findOne({ user: req.user.id })
+      .sort({ _id: -1 }) // Sort by newest first
+      .lean()
+      .exec();
+
+    if (!latestReport) {
+      return res.status(404).json({ message: "No report found" });
+    }
+
+    res.status(200).json({
+      message: "Latest report retrieved successfully",
+      interviewReport: latestReport,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error retrieving report" });
+  }
+};
+
+export const getHistoryController = async (req, res) => {
+  try {
+    const history = await InterviewReport.find({ user: req.user.id })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    
+    res.status(200).json({
+      message: "History retrieved successfully",
+      history,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error retrieving history" });
   }
 };

@@ -103,24 +103,132 @@ async function generateInterviewReport({
   selfDescription,
   jobDescription,
 }) {
-  const prompt = `Generate an interview report for a candidate with the following details:
-                        Resume: ${resume}
-                        Self Description: ${selfDescription}
-                        Job Description: ${jobDescription}
-`;
+  const prompt = `Generate an interview report for a candidate. 
+Resume: ${resume}
+Self Description: ${selfDescription}
+Job Description: ${jobDescription}
+
+You MUST return ONLY a JSON object. Do not include markdown formatting like \`\`\`json. The JSON MUST EXACTLY follow this structure where arrays contain OBJECTS, not flat strings:
+
+{
+  "title": "string",
+  "matchScore": 85,
+  "technicalQuestions": [
+    {
+      "question": "string",
+      "intention": "string",
+      "answer": "string"
+    }
+  ],
+  "behavioralQuestions": [
+    {
+      "question": "string",
+      "intention": "string",
+      "answer": "string"
+    }
+  ],
+  "skillGaps": [
+    {
+      "skill": "string",
+      "severity": "low"
+    }
+  ],
+  "preparationPlan": [
+    {
+      "day": 1,
+      "focus": "string",
+      "tasks": [
+        "string"
+      ]
+    }
+  ]
+}`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
-      responseMimeType: "application/json",
-      responseSchema: zodToJsonSchema(interviewReportSchema),
+      responseMimeType: "application/json"
     },
   });
   
-console.log(response.text);
+  let text = response.text;
+  if (text.startsWith('```json')) {
+    text = text.replace(/^```json\n/, '').replace(/\n```$/, '');
+  } else if (text.startsWith('```')) {
+    text = text.replace(/^```\n/, '').replace(/\n```$/, '');
+  }
 
-  return JSON.parse(response.text);
+  console.log("AI Parsed Text:", text);
+
+  let parsed = JSON.parse(text);
+
+  // Helper function to brutally force an array into an array of objects
+  const unflatten = (arr, keys) => {
+    if (!Array.isArray(arr)) return [];
+    if (arr.length === 0) return arr;
+    
+    // If it's already perfectly formed
+    if (typeof arr[0] === 'object' && arr[0] !== null && !Array.isArray(arr[0])) {
+      return arr;
+    }
+
+    let result = [];
+    let currentObj = {};
+    let keySet = new Set(keys.map(k => k.toLowerCase()));
+    
+    // Process the flat array by scanning for any key matches
+    for (let i = 0; i < arr.length; i++) {
+      let item = arr[i];
+      let itemStr = typeof item === 'string' ? item.toLowerCase() : '';
+      
+      if (keySet.has(itemStr)) {
+        // We hit a key! The next item is its value.
+        let actualKey = keys.find(k => k.toLowerCase() === itemStr);
+        let val = arr[i + 1];
+        
+        // If this key already exists in currentObj, it means we started a new object
+        if (currentObj[actualKey] !== undefined) {
+          result.push(currentObj);
+          currentObj = {};
+        }
+        
+        currentObj[actualKey] = val !== undefined ? val : '';
+        i++; // skip the value
+      }
+    }
+    
+    // Push the last object if it has keys
+    if (Object.keys(currentObj).length > 0) {
+      result.push(currentObj);
+    }
+
+    // Fallback: if scanning completely failed (no keys matched), chunk it sequentially
+    if (result.length === 0) {
+      for (let i = 0; i < arr.length; i += keys.length) {
+        let obj = {};
+        for (let j = 0; j < keys.length; j++) {
+          obj[keys[j]] = arr[i + j] !== undefined ? arr[i + j] : '';
+        }
+        result.push(obj);
+      }
+    }
+
+    return result;
+  };
+
+  // Normalize the arrays before passing to Mongoose to prevent CastError
+  const getSafeArray = (key, expectedKeys) => {
+    let arr = parsed[key] || parsed[key.toLowerCase()] || [];
+    return unflatten(arr, expectedKeys);
+  };
+
+  parsed.technicalQuestions = getSafeArray("technicalQuestions", ["question", "intention", "answer"]);
+  parsed.behavioralQuestions = getSafeArray("behavioralQuestions", ["question", "intention", "answer"]);
+  parsed.skillGaps = getSafeArray("skillGaps", ["skill", "severity"]);
+  parsed.preparationPlan = getSafeArray("preparationPlan", ["day", "focus", "tasks"]);
+
+  return parsed;
   
 }
 
